@@ -1,80 +1,149 @@
-// 1. PWA Service Worker Registration
+// --- CONFIGURATION: PREDEFINED MAP ---
+const campusMap = {
+    // Map physical ESP32 Device Names to logical Location IDs
+    beacons: {
+        "ESP32_A": "entrance",
+        "ESP32_B": "hallway_main",
+        "ESP32_C": "library",
+        "ESP32_D": "cafeteria"
+    },
+    // Define the graph: Connections between locations
+    graph: {
+        "entrance": ["hallway_main"],
+        "hallway_main": ["entrance", "library", "cafeteria"],
+        "library": ["hallway_main"],
+        "cafeteria": ["hallway_main"]
+    },
+    // Human readable names for UI
+    names: {
+        "entrance": "Main Entrance",
+        "hallway_main": "Main Hallway",
+        "library": "Library",
+        "cafeteria": "Cafeteria"
+    }
+};
+
+// --- APP LOGIC ---
+
+// PWA Service Worker
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
-        .then(reg => console.log('Service Worker registered', reg))
-        .catch(err => console.warn('Service Worker failed (expected in preview):', err));
+    navigator.serviceWorker.register('sw.js').catch(console.warn);
 }
 
-const scanBtn = document.getElementById('scanBtn');
+// UI Elements
+const setupScreen = document.getElementById('setup-screen');
+const navScreen = document.getElementById('nav-screen');
+const destSelect = document.getElementById('destination-select');
+const startNavBtn = document.getElementById('startNavBtn');
 const stopBtn = document.getElementById('stopBtn');
-const resultUi = document.getElementById('result-ui');
-const scanUi = document.getElementById('scan-ui');
-const rssiMeter = document.getElementById('rssi-meter');
-const nameLabel = document.getElementById('device-name');
 const statusLabel = document.getElementById('status');
-const simWarning = document.getElementById('sim-warning');
+const currentLocLabel = document.getElementById('current-loc');
+const guidanceLabel = document.getElementById('guidance-text');
+const debugBeacon = document.getElementById('debug-beacon');
+const debugRssi = document.getElementById('debug-rssi');
 
-let currentDevice;
+let targetLocation = null;
 let abortController;
-let simInterval;
 
-function updateRssiDisplay(rssi) {
-    rssiMeter.innerText = rssi;
-    if (rssi > -50) rssiMeter.style.color = "#28a745"; // Green
-    else if (rssi > -70) rssiMeter.style.color = "#ffc107"; // Yellow
-    else rssiMeter.style.color = "#dc3545"; // Red
+// 1. Populate Dropdown
+Object.keys(campusMap.names).forEach(key => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.innerText = campusMap.names[key];
+    destSelect.appendChild(option);
+});
+
+// Enable button only when destination is picked
+destSelect.addEventListener('change', () => {
+    startNavBtn.disabled = false;
+    targetLocation = destSelect.value;
+});
+
+// 2. Navigation Algorithm (BFS for shortest path)
+function getNextStep(current, target) {
+    if (current === target) return "You have arrived!";
+    
+    let queue = [[current]];
+    let visited = new Set();
+    visited.add(current);
+    
+    while (queue.length > 0) {
+        let path = queue.shift();
+        let node = path[path.length - 1];
+        
+        if (node === target) {
+            // The next step is the second node in the path
+            const nextNode = path[1];
+            return `Go towards ${campusMap.names[nextNode]}`;
+        }
+        
+        const neighbors = campusMap.graph[node] || [];
+        for (let neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                let newPath = [...path, neighbor];
+                queue.push(newPath);
+            }
+        }
+    }
+    return "Path unclear.";
 }
 
-scanBtn.addEventListener('click', async () => {
-    // Check if browser even supports Bluetooth
+// 3. Bluetooth Scanning Logic
+startNavBtn.addEventListener('click', async () => {
     if (!navigator.bluetooth) {
-        statusLabel.innerText = "Bluetooth API not supported in this browser.";
-        startSimulation(); // Fallback for testing
+        alert("Bluetooth not supported.");
         return;
     }
 
+    setupScreen.classList.add('hidden');
+    navScreen.classList.remove('hidden');
+    statusLabel.innerText = "Connecting to Beacons...";
+
     try {
-        statusLabel.innerText = "Requesting Bluetooth Access...";
-        
         const device = await navigator.bluetooth.requestDevice({
+            // We accept all devices so we can filter by name against our map
             acceptAllDevices: true,
             optionalServices: [] 
         });
 
-        currentDevice = device;
         abortController = new AbortController();
-
-        scanUi.classList.add('hidden');
-        resultUi.classList.remove('hidden');
-        nameLabel.innerText = device.name || "Unknown Device";
-        statusLabel.innerText = "Connecting to stream...";
-
+        
+        // Watch for advertisements
         device.addEventListener('advertisementreceived', (event) => {
-            updateRssiDisplay(event.rssi);
+            const rssi = event.rssi;
+            const deviceName = event.device.name; // or event.name depending on browser version
+
+            debugBeacon.innerText = deviceName || "Unknown";
+            debugRssi.innerText = rssi;
+
+            // -- CORE LOGIC: MAP MATCHING --
+            if (deviceName && campusMap.beacons[deviceName]) {
+                const detectedLocation = campusMap.beacons[deviceName];
+                
+                // Only trust strong signals (e.g., > -85) to avoid jumping around
+                if (rssi > -85) {
+                    currentLocLabel.innerText = campusMap.names[detectedLocation];
+                    const instruction = getNextStep(detectedLocation, targetLocation);
+                    guidanceLabel.innerText = instruction;
+                }
+            }
         });
 
         await device.watchAdvertisements({ signal: abortController.signal });
-        statusLabel.innerText = "Tracking Signal...";
+        statusLabel.innerText = "Navigating...";
 
     } catch (error) {
-        console.log("Full Error:", error);
-        
-        // Handle the specific "SecurityError" that happens in iframes/previews
-        if (error.name === 'SecurityError' || error.name === 'NotFoundError') {
-            statusLabel.innerText = "Bluetooth Blocked by Browser Preview.";
-            // Launch simulation so user can see how UI works
-            startSimulation();
-        } else {
-            statusLabel.innerText = "Scan failed: " + error.message;
-        }
+        console.error(error);
+        stopNavigation(); // Reset on error
     }
 });
 
-stopBtn.addEventListener('click', () => {
+function stopNavigation() {
     if (abortController) abortController.abort();
-    stopSimulation();
-    scanUi.classList.remove('hidden');
-    resultUi.classList.add('hidden');
-    rssiMeter.innerText = "--";
-    statusLabel.innerText = "Ready to scan";
-});
+    navScreen.classList.add('hidden');
+    setupScreen.classList.remove('hidden');
+    guidanceLabel.innerText = "Waiting for signal...";
+}
+
+stopBtn.addEventListener('click', stopNavigation);
