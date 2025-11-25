@@ -13,9 +13,17 @@ self.addEventListener('install', (e) => {
     );
 });
 
-// Fetch Event: Serve from cache first, fall back to network
+/*
 self.addEventListener('fetch', (e) => {
     e.respondWith(
         caches.match(e.request).then((response) => response || fetch(e.request))
+    );
+});
+*/
+
+self.addEventListener('fetch', (e) => {
+    e.respondWith(
+        fetch(e.request)
+            .catch(() => caches.match(e.request))
     );
 });
