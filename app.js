@@ -28,7 +28,7 @@ let visibleBeacons = {};
 let targetLocation = null;
 let userPosition = { x: 0, y: 0 };
 let targetBearing = 0; 
-let abortController;
+let scanActive = false;
 let animationLoop;
 
 // --- UI ELEMENTS ---
@@ -42,8 +42,9 @@ const guidanceLabel = document.getElementById('guidance-text');
 const navArrow = document.getElementById('nav-arrow');
 const confidenceFill = document.getElementById('confidence-fill');
 const debugCoords = document.getElementById('debug-coords');
-const beaconList = document.getElementById('beacon-list'); // NEW
+const beaconList = document.getElementById('beacon-list');
 
+// Service Worker (Cache)
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(console.warn);
 
 // 1. Setup Dropdown
@@ -61,6 +62,7 @@ destSelect.addEventListener('change', () => {
 
 // --- CORE MATH ---
 function getWeight(rssi) {
+    // Map RSSI to weight: -100(weak) to -40(strong)
     const safeRssi = Math.max(-100, Math.min(-40, rssi));
     return (safeRssi + 105) / 65; 
 }
@@ -70,10 +72,10 @@ function calculateUserPosition() {
     let totalX = 0, totalY = 0, totalWeight = 0;
     let activeCount = 0;
     
-    // Clear the visual list
+    // Clear list
     beaconList.innerHTML = "";
 
-    // Iterate over all known beacons
+    // Iterate over visible beacons
     for (let id in visibleBeacons) {
         const beacon = visibleBeacons[id];
         
@@ -83,12 +85,12 @@ function calculateUserPosition() {
             continue;
         }
 
-        // --- NEW: Add to UI List ---
+        // Add to UI List
         const li = document.createElement('li');
         li.innerHTML = `<span>${campusMap.names[id]}</span> <span class="rssi-val">${beacon.rssi} dBm</span>`;
         beaconList.appendChild(li);
 
-        // Accumulate Weighted Coordinates
+        // Triangulation Math
         const weight = getWeight(beacon.rssi);
         const coords = campusMap.coordinates[id];
         
@@ -101,22 +103,23 @@ function calculateUserPosition() {
     }
 
     if (activeCount === 0) {
-        beaconList.innerHTML = `<li style="text-align:center; color:#999;">No beacons detected</li>`;
+        beaconList.innerHTML = `<li style="text-align:center; color:#999;">Searching for beacons...</li>`;
     }
 
-    // Update User Position
+    // Update Position
     if (totalWeight > 0) {
         userPosition.x = totalX / totalWeight;
         userPosition.y = totalY / totalWeight;
         
         debugCoords.innerText = `${userPosition.x.toFixed(1)}, ${userPosition.y.toFixed(1)}`;
         
+        // Update Confidence Bar
         let confidence = Math.min(100, activeCount * 33);
         confidenceFill.style.width = `${confidence}%`;
         
         calculateTargetVector();
     } else {
-        guidanceLabel.innerText = "Searching for signal...";
+        guidanceLabel.innerText = "No signal detected";
         confidenceFill.style.width = "0%";
     }
 }
@@ -125,6 +128,7 @@ function calculateTargetVector() {
     if (!targetLocation) return;
     const target = campusMap.coordinates[targetLocation];
     
+    // Check Arrival
     const dist = Math.hypot(target.x - userPosition.x, target.y - userPosition.y);
     if (dist < 2.0) {
         guidanceLabel.innerText = "You have arrived!";
@@ -133,6 +137,7 @@ function calculateTargetVector() {
     }
     navArrow.style.opacity = 1;
 
+    // Calculate Angle
     let dy = target.y - userPosition.y;
     let dx = target.x - userPosition.x;
     let thetaRad = Math.atan2(dy, dx);
@@ -143,58 +148,74 @@ function calculateTargetVector() {
     guidanceLabel.innerText = `Walk to ${campusMap.names[targetLocation]}`;
 }
 
+// --- SENSORS & BLUETOOTH (POPUP FREE) ---
 
-// --- SENSORS & BLUETOOTH ---
+// 1. Compass Handling
 function handleOrientation(event) {
     let currentHeading = event.webkitCompassHeading || Math.abs(event.alpha - 360);
     let rotation = targetBearing - currentHeading;
     navArrow.style.transform = `rotate(${rotation}deg)`;
 }
 
+// 2. Beacon Handler (Shared logic)
+function handleBeaconSignal(deviceName, rssi) {
+    // Only care if it's in our map
+    if (campusMap.beacons[deviceName]) {
+        const id = campusMap.beacons[deviceName];
+        visibleBeacons[id] = {
+            rssi: rssi,
+            lastSeen: Date.now()
+        };
+    }
+}
+
 startNavBtn.addEventListener('click', async () => {
+    // Check for "Experimental Web Platform Features" support
+    if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
+        alert("Your browser does not support Background Scanning. \n\nPlease enable 'Web Bluetooth' and 'Experimental Web Platform Features' in brave://flags");
+        return;
+    }
+
+    // Compass Permission (iOS)
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
     }
 
-    if (!navigator.bluetooth) { alert("Bluetooth not supported."); return; }
-
+    // Switch UI
     setupScreen.classList.add('hidden');
     navScreen.classList.remove('hidden');
     destLabel.innerText = campusMap.names[targetLocation];
     
+    // Start Sensors
     window.addEventListener('deviceorientation', handleOrientation);
     animationLoop = setInterval(calculateUserPosition, 500);
 
     try {
-        const device = await navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
-            optionalServices: [] 
+        // --- THE FIX: USE requestLEScan INSTEAD OF requestDevice ---
+        // This scan runs in the background and DOES NOT show a device picker list.
+        const scan = await navigator.bluetooth.requestLEScan({
+            filters: [{ namePrefix: "ESP32" }], // Only listen to our beacons
+            keepRepeatedDevices: true,
+            acceptAllAdvertisements: false
         });
 
-        abortController = new AbortController();
-        device.addEventListener('advertisementreceived', (event) => {
-            const deviceName = event.device.name;
-            const rssi = event.rssi;
-            
-            if (campusMap.beacons[deviceName]) {
-                const id = campusMap.beacons[deviceName];
-                visibleBeacons[id] = {
-                    rssi: rssi,
-                    lastSeen: Date.now()
-                };
-            }
+        scanActive = true;
+        
+        // Listen to the global navigator event
+        navigator.bluetooth.addEventListener('advertisementreceived', (event) => {
+            handleBeaconSignal(event.device.name, event.rssi);
         });
-
-        await device.watchAdvertisements({ signal: abortController.signal });
 
     } catch (error) {
-        console.error(error);
+        console.error("Scan Error:", error);
+        alert("Scan failed to start. Make sure Bluetooth is on and flags are enabled.");
         stopNavigation();
     }
 });
 
 function stopNavigation() {
-    if (abortController) abortController.abort();
+    // Stop the scan if possible (API limitation: sometimes hard to stop without refresh)
+    scanActive = false;
     if (animationLoop) clearInterval(animationLoop);
     window.removeEventListener('deviceorientation', handleOrientation);
     navScreen.classList.add('hidden');
