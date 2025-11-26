@@ -1,0 +1,255 @@
+/* style.css */
+
+:root {
+    --primary: #0f172a;       /* Dark Navy */
+    --accent: #3b82f6;        /* Bright Blue */
+    --success: #10b981;       /* Emerald Green */
+    --bg-color: #f1f5f9;      /* Light Grey-Blue */
+    --card-bg: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden; /* Prevent scroll bounce */
+}
+
+.card {
+    background: var(--card-bg);
+    width: 100%;
+    max-width: 420px;
+    height: 90vh; /* Takes up most of the screen */
+    max-height: 800px;
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    padding: 30px 24px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--primary);
+    margin: 0 0 5px 0;
+    letter-spacing: -0.5px;
+}
+
+p {
+    color: var(--text-muted);
+    margin-top: 0;
+}
+
+/* --- FORMS & BUTTONS --- */
+select {
+    width: 100%;
+    padding: 16px;
+    font-size: 1rem;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    background-color: #f8fafc;
+    color: var(--text-main);
+    margin: 20px 0;
+    outline: none;
+    transition: border-color 0.2s;
+    appearance: none; /* Custom dropdown styling could go here */
+}
+
+select:focus {
+    border-color: var(--accent);
+}
+
+button {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 18px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 14px;
+    cursor: pointer;
+    width: 100%;
+    transition: transform 0.1s ease, background 0.2s;
+    margin-top: auto; /* Push to bottom */
+}
+
+button:active {
+    transform: scale(0.98);
+}
+
+button:disabled {
+    background: #cbd5e1;
+    cursor: not-allowed;
+    transform: none;
+}
+
+button.stop {
+    background: #ef4444; /* Red */
+    margin-top: 15px;
+}
+
+/* --- NAVIGATION SCREEN --- */
+.nav-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.location-name {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1.2;
+}
+
+/* --- COMPASS ARROW --- */
+#arrow-container {
+    width: 160px;
+    height: 160px;
+    margin: 20px auto;
+    background: #f8fafc;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 4px solid #fff;
+    box-shadow: 
+        inset 0 4px 6px rgba(0,0,0,0.05),
+        0 10px 20px rgba(0,0,0,0.05);
+    position: relative;
+}
+
+/* A subtle ring that pulses */
+#arrow-container::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+    0% { transform: scale(0.9); opacity: 0.5; }
+    100% { transform: scale(1.3); opacity: 0; }
+}
+
+#nav-arrow {
+    width: 70px;
+    height: 70px;
+    fill: var(--accent);
+    filter: drop-shadow(0 4px 3px rgba(59, 130, 246, 0.4));
+    transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+}
+
+/* --- CONFIDENCE METER --- */
+.meter-container {
+    width: 80%;
+    margin: 20px auto 5px;
+}
+
+#confidence-bar {
+    width: 100%;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#confidence-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--success);
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sub-text {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 5px;
+    display: block;
+}
+
+/* --- BEACON LIST --- */
+#beacon-list {
+    list-style: none;
+    padding: 0;
+    margin: 15px 0 0;
+    flex: 1; /* Grow to fill space */
+    overflow-y: auto;
+    border-top: 1px solid #f1f5f9;
+}
+
+#beacon-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 10px;
+    border-bottom: 1px solid #f8fafc;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+#beacon-list li span:first-child {
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.rssi-val {
+    font-family: 'SF Mono', 'Roboto Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--accent);
+    background: #eff6ff;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+/* --- UTILITIES --- */
+.hidden { display: none !important; }
+
+#guidance-text {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--primary);
+    min-height: 1.5rem;
+    margin-bottom: 10px;
+}
+
+.debug-info {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    text-align: center;
+    margin-top: 10px;
+    font-family: monospace;
+}
