@@ -4,6 +4,7 @@
     --primary: #0f172a;       /* Dark Navy */
     --accent: #3b82f6;        /* Bright Blue */
     --success: #10b981;       /* Emerald Green */
+    --error: #ef4444;         /* Red */
     --bg-color: #f1f5f9;      /* Light Grey-Blue */
     --card-bg: #ffffff;
     --text-main: #1e293b;
@@ -25,14 +26,14 @@ body {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    overflow: hidden; /* Prevent scroll bounce */
+    overflow: hidden; 
 }
 
 .card {
     background: var(--card-bg);
     width: 100%;
     max-width: 420px;
-    height: 90vh; /* Takes up most of the screen */
+    height: 90vh; 
     max-height: 800px;
     border-radius: 24px;
     box-shadow: var(--shadow);
@@ -56,25 +57,53 @@ p {
     margin-top: 0;
 }
 
-/* --- FORMS & BUTTONS --- */
-select {
+/* --- INPUT GROUP (New Text Interface) --- */
+.input-group {
+    display: flex;
+    gap: 10px;
+    margin: 20px 0 10px 0;
     width: 100%;
+}
+
+#nav-prompt {
+    flex-grow: 1;
     padding: 16px;
     font-size: 1rem;
     border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    background-color: #f8fafc;
-    color: var(--text-main);
-    margin: 20px 0;
+    border-radius: 14px;
     outline: none;
-    transition: border-color 0.2s;
-    appearance: none; /* Custom dropdown styling could go here */
+    transition: border-color 0.2s, background 0.2s;
+    background: #f8fafc;
+    color: var(--text-main);
 }
 
-select:focus {
+#nav-prompt:focus {
     border-color: var(--accent);
+    background: #fff;
 }
 
+/* The "Go" Button next to input */
+#classifyBtn {
+    width: 60px;
+    padding: 0;
+    margin: 0; 
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+#classifyBtn:active {
+    transform: scale(0.95);
+}
+
+/* --- MAIN BUTTONS --- */
 button {
     background: var(--primary);
     color: white;
@@ -100,7 +129,7 @@ button:disabled {
 }
 
 button.stop {
-    background: #ef4444; /* Red */
+    background: var(--error); 
     margin-top: 15px;
 }
 
@@ -126,7 +155,7 @@ button.stop {
     line-height: 1.2;
 }
 
-/* --- COMPASS ARROW --- */
+/* --- COMPASS ARROW UI --- */
 #arrow-container {
     width: 160px;
     height: 160px;
@@ -165,11 +194,26 @@ button.stop {
     height: 70px;
     fill: var(--accent);
     filter: drop-shadow(0 4px 3px rgba(59, 130, 246, 0.4));
-    transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), fill 0.3s;
     will-change: transform;
 }
 
-/* --- CONFIDENCE METER --- */
+/* --- ANIMATIONS FOR SIGNAL TRENDS --- */
+/* Used when signal gets stronger (Jump Up) */
+@keyframes bump-up {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0); }
+}
+
+/* Used when signal gets weaker (Jump Down/Rotate) */
+@keyframes bump-down {
+    0% { transform: rotate(180deg) translateY(0); }
+    50% { transform: rotate(180deg) translateY(-10px); } 
+    100% { transform: rotate(180deg) translateY(0); }
+}
+
+/* --- SIGNAL STRENGTH BAR --- */
 .meter-container {
     width: 80%;
     margin: 20px auto 5px;
@@ -195,44 +239,7 @@ button.stop {
     color: var(--text-muted);
     margin-top: 5px;
     display: block;
-}
-
-/* --- BEACON LIST --- */
-#beacon-list {
-    list-style: none;
-    padding: 0;
-    margin: 15px 0 0;
-    flex: 1; /* Grow to fill space */
-    overflow-y: auto;
-    border-top: 1px solid #f1f5f9;
-}
-
-#beacon-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 10px;
-    border-bottom: 1px solid #f8fafc;
-    animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-#beacon-list li span:first-child {
-    font-weight: 600;
-    color: var(--text-main);
-}
-
-.rssi-val {
-    font-family: 'SF Mono', 'Roboto Mono', monospace;
-    font-size: 0.85rem;
-    color: var(--accent);
-    background: #eff6ff;
-    padding: 4px 8px;
-    border-radius: 6px;
+    text-align: center;
 }
 
 /* --- UTILITIES --- */
@@ -244,6 +251,7 @@ button.stop {
     color: var(--primary);
     min-height: 1.5rem;
     margin-bottom: 10px;
+    text-align: center;
 }
 
 .debug-info {
