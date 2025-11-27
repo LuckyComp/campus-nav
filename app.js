@@ -1,226 +1,253 @@
-//
-
-// --- MAP CONFIGURATION ---
 const campusMap = {
     beacons: {
         "ESP32_A": "entrance",
         "ESP32_B": "hallway_main",
-        "ESP32_C": "library",
-        "ESP32_D": "cafeteria"
-    },
-    coordinates: {
-        "entrance":     { x: 0,  y: 0 },
-        "hallway_main": { x: 0,  y: 10 },
-        "library":      { x: 10, y: 10 }, 
-        "cafeteria":    { x: -10, y: 10 }
+        "ESP32_C": "library"
     },
     names: {
         "entrance": "Main Entrance",
         "hallway_main": "Main Hallway",
-        "library": "Library",
-        "cafeteria": "Cafeteria"
+        "library": "Library"
+    },
+    graph: {
+        "entrance": { 
+            "hallway_main": 0 
+        },
+        "hallway_main": { 
+            "entrance": 180,  
+            "library": 90     
+        },
+        "library": { 
+            "hallway_main": 270 
+        }
     }
 };
 
-// --- GLOBAL STATE ---
-const TIMEOUT_MS = 3000; 
-let visibleBeacons = {}; 
-let targetLocation = null;
-let userPosition = { x: 0, y: 0 };
-let targetBearing = 0; 
+class SklearnClassifier {
+    constructor() { this.model = null; this.ready = false; }
+    
+    async load(url) {
+        try {
+            const response = await fetch(url);
+            this.model = await response.json();
+            this.ready = true;
+            console.log("ML Loaded. Classes:", this.model.classes);
+            return true;
+        } catch (e) { console.error(e); return false; }
+    }
+
+    preprocess(text) { 
+        return text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 1); 
+    }
+
+    predict(text) {
+        if (!this.ready) return null;
+        const { vocabulary, classes, priors, feature_probs } = this.model;
+        
+        // Clone priors to start scoring
+        let scores = [...priors];
+        
+        this.preprocess(text).forEach(token => {
+            if (vocabulary.hasOwnProperty(token)) {
+                const idx = vocabulary[token];
+                for (let i = 0; i < classes.length; i++) scores[i] += feature_probs[i][idx];
+            }
+        });
+
+        // Find best match
+        let max = -Infinity, best = -1;
+        scores.forEach((s, i) => { if(s > max) { max = s; best = i; } });
+        return classes[best];
+    }
+}
+
+
+const ARRIVAL_RSSI = -65; 
+let classifier = new SklearnClassifier();
+
+
+classifier.load('campus-nav-model.json').then(s => {
+    if(s) document.getElementById('classifier-result').innerText = "AI Ready.";
+});
+
+let currentStep = null;     
+let nextStep = null;        
+let finalDestination = null;
+let targetBearing = 0;      
 let scanActive = false;
-let animationLoop;
 
 // --- UI ELEMENTS ---
 const setupScreen = document.getElementById('setup-screen');
 const navScreen = document.getElementById('nav-screen');
-const destSelect = document.getElementById('destination-select');
+const navPrompt = document.getElementById('nav-prompt');
+const classifyBtn = document.getElementById('classifyBtn');
+const classifierResult = document.getElementById('classifier-result');
 const startNavBtn = document.getElementById('startNavBtn');
 const stopBtn = document.getElementById('stopBtn');
 const destLabel = document.getElementById('dest-label');
 const guidanceLabel = document.getElementById('guidance-text');
 const navArrow = document.getElementById('nav-arrow');
-const confidenceFill = document.getElementById('confidence-fill');
-const debugCoords = document.getElementById('debug-coords');
-const beaconList = document.getElementById('beacon-list');
+const signalBar = document.getElementById('confidence-fill');
+const debugVal = document.getElementById('debug-coords');
 
-// Service Worker (Cache)
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(console.warn);
 
-// 1. Setup Dropdown
-Object.keys(campusMap.names).forEach(key => {
-    const option = document.createElement('option');
-    option.value = key;
-    option.innerText = campusMap.names[key];
-    destSelect.appendChild(option);
-});
 
-destSelect.addEventListener('change', () => {
-    startNavBtn.disabled = false;
-    targetLocation = destSelect.value;
-});
-
-// --- CORE MATH ---
-function getWeight(rssi) {
-    // Map RSSI to weight: -100(weak) to -40(strong)
-    const safeRssi = Math.max(-100, Math.min(-40, rssi));
-    return (safeRssi + 105) / 65; 
-}
-
-function calculateUserPosition() {
-    const now = Date.now();
-    let totalX = 0, totalY = 0, totalWeight = 0;
-    let activeCount = 0;
+function findNextStep(start, end) {
+    if (start === end) return null;
+    let queue = [[start]];
+    let visited = new Set([start]);
     
-    // Clear list
-    beaconList.innerHTML = "";
-
-    // Iterate over visible beacons
-    for (let id in visibleBeacons) {
-        const beacon = visibleBeacons[id];
+    while (queue.length > 0) {
+        let path = queue.shift();
+        let node = path[path.length - 1];
+        if (node === end) return path[1]; 
         
-        // Remove stale beacons
-        if (now - beacon.lastSeen > TIMEOUT_MS) {
-            delete visibleBeacons[id];
-            continue;
-        }
-
-        // Add to UI List
-        const li = document.createElement('li');
-        li.innerHTML = `<span>${campusMap.names[id]}</span> <span class="rssi-val">${beacon.rssi} dBm</span>`;
-        beaconList.appendChild(li);
-
-        // Triangulation Math
-        const weight = getWeight(beacon.rssi);
-        const coords = campusMap.coordinates[id];
-        
-        if (coords) {
-            totalX += coords.x * weight;
-            totalY += coords.y * weight;
-            totalWeight += weight;
-            activeCount++;
+        const neighbors = Object.keys(campusMap.graph[node] || {});
+        for (let neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push([...path, neighbor]);
+            }
         }
     }
-
-    if (activeCount === 0) {
-        beaconList.innerHTML = `<li style="text-align:center; color:#999;">Searching for beacons...</li>`;
-    }
-
-    // Update Position
-    if (totalWeight > 0) {
-        userPosition.x = totalX / totalWeight;
-        userPosition.y = totalY / totalWeight;
-        
-        debugCoords.innerText = `${userPosition.x.toFixed(1)}, ${userPosition.y.toFixed(1)}`;
-        
-        // Update Confidence Bar
-        let confidence = Math.min(100, activeCount * 33);
-        confidenceFill.style.width = `${confidence}%`;
-        
-        calculateTargetVector();
-    } else {
-        guidanceLabel.innerText = "No signal detected";
-        confidenceFill.style.width = "0%";
-    }
+    return null;
 }
 
-function calculateTargetVector() {
-    if (!targetLocation) return;
-    const target = campusMap.coordinates[targetLocation];
-    
-    // Check Arrival
-    const dist = Math.hypot(target.x - userPosition.x, target.y - userPosition.y);
-    if (dist < 2.0) {
-        guidanceLabel.innerText = "You have arrived!";
-        navArrow.style.opacity = 0;
+
+
+classifyBtn.addEventListener('click', () => {
+    const text = navPrompt.value;
+    if (!text.trim()) return;
+
+    if (!classifier.ready) {
+        classifierResult.innerText = "⚠️ Model loading...";
         return;
     }
-    navArrow.style.opacity = 1;
 
-    // Calculate Angle
-    let dy = target.y - userPosition.y;
-    let dx = target.x - userPosition.x;
-    let thetaRad = Math.atan2(dy, dx);
-    let thetaDeg = thetaRad * (180 / Math.PI);
-    
-    targetBearing = (90 - thetaDeg + 360) % 360; 
-    
-    guidanceLabel.innerText = `Walk to ${campusMap.names[targetLocation]}`;
+    const result = classifier.predict(text);
+
+    if (result) {
+        finalDestination = result;
+        classifierResult.innerText = `✓ Going to ${campusMap.names[result]}`;
+        classifierResult.style.color = "var(--success)";
+        startNavBtn.disabled = false;
+        
+        setTimeout(() => startNavBtn.click(), 800);
+    } else {
+        classifierResult.innerText = "❓ Unsure. Try again.";
+        classifierResult.style.color = "#ef4444";
+    }
+});
+
+navPrompt.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') classifyBtn.click();
+});
+
+
+function updateNavigationState(detectedBeaconName, rssi) {
+    const detectedNode = campusMap.beacons[detectedBeaconName];
+    if (!detectedNode) return;
+
+    let strength = Math.max(0, Math.min(100, (rssi + 100) * 2));
+    signalBar.style.width = `${strength}%`;
+
+    if (detectedNode === nextStep && rssi > ARRIVAL_RSSI) {
+        currentStep = nextStep;
+        
+        const newNext = findNextStep(currentStep, finalDestination);
+        
+        if (!newNext) {
+            guidanceLabel.innerText = "You have arrived! ";
+            navArrow.style.opacity = 0;
+            debugVal.innerText = "Destination Reached";
+        } else {
+            nextStep = newNext;
+            targetBearing = campusMap.graph[currentStep][nextStep];
+            
+            guidanceLabel.innerText = `At ${campusMap.names[currentStep]}. Head to ${campusMap.names[nextStep]}`;
+            destLabel.innerText = campusMap.names[nextStep]; 
+            navArrow.style.opacity = 1;
+            
+            navArrow.style.fill = "#10b981";
+            setTimeout(() => navArrow.style.fill = "#3b82f6", 1000);
+        }
+    } else if (detectedNode === nextStep) {
+        debugVal.innerText = `Approaching ${campusMap.names[nextStep]} (${rssi}dBm)`;
+    }
 }
 
-// --- SENSORS & BLUETOOTH (POPUP FREE) ---
 
-// 1. Compass Handling
 function handleOrientation(event) {
+    if (navArrow.style.opacity === "0") return;
+
     let currentHeading = event.webkitCompassHeading || Math.abs(event.alpha - 360);
     let rotation = targetBearing - currentHeading;
+    
     navArrow.style.transform = `rotate(${rotation}deg)`;
 }
 
-// 2. Beacon Handler (Shared logic)
-function handleBeaconSignal(deviceName, rssi) {
-    // Only care if it's in our map
-    if (campusMap.beacons[deviceName]) {
-        const id = campusMap.beacons[deviceName];
-        visibleBeacons[id] = {
-            rssi: rssi,
-            lastSeen: Date.now()
-        };
-    }
-}
-
 startNavBtn.addEventListener('click', async () => {
-    // Check for "Experimental Web Platform Features" support
     if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
-        alert("Your browser does not support Background Scanning. \n\nPlease enable 'Web Bluetooth' and 'Experimental Web Platform Features' in brave://flags");
+        alert("Please enable 'Experimental Web Platform Features' in brave://flags");
         return;
     }
 
-    // Compass Permission (iOS)
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
     }
+    
+    currentStep = "entrance"; 
+    
+    nextStep = findNextStep(currentStep, finalDestination);
+    
+    if (!nextStep && currentStep !== finalDestination) {
+        alert("No path found!"); return;
+    } else if (currentStep === finalDestination) {
+        alert("You are already there!"); return;
+    }
 
-    // Switch UI
+    targetBearing = campusMap.graph[currentStep][nextStep];
+
     setupScreen.classList.add('hidden');
     navScreen.classList.remove('hidden');
-    destLabel.innerText = campusMap.names[targetLocation];
     
-    // Start Sensors
+    destLabel.innerText = campusMap.names[nextStep];
+    guidanceLabel.innerText = `Follow arrow to ${campusMap.names[nextStep]}`;
+    
     window.addEventListener('deviceorientation', handleOrientation);
-    animationLoop = setInterval(calculateUserPosition, 500);
 
     try {
-        // --- THE FIX: USE requestLEScan INSTEAD OF requestDevice ---
-        // This scan runs in the background and DOES NOT show a device picker list.
         const scan = await navigator.bluetooth.requestLEScan({
-            filters: [{ namePrefix: "ESP32" }], // Only listen to our beacons
+            filters: [{ namePrefix: "ESP32" }],
             keepRepeatedDevices: true,
             acceptAllAdvertisements: false
         });
 
         scanActive = true;
-        
-        // Listen to the global navigator event
         navigator.bluetooth.addEventListener('advertisementreceived', (event) => {
-            handleBeaconSignal(event.device.name, event.rssi);
+            updateNavigationState(event.device.name, event.rssi);
         });
 
     } catch (error) {
         console.error("Scan Error:", error);
-        alert("Scan failed to start. Make sure Bluetooth is on and flags are enabled.");
         stopNavigation();
     }
 });
 
 function stopNavigation() {
-    // Stop the scan if possible (API limitation: sometimes hard to stop without refresh)
     scanActive = false;
-    if (animationLoop) clearInterval(animationLoop);
     window.removeEventListener('deviceorientation', handleOrientation);
     navScreen.classList.add('hidden');
     setupScreen.classList.remove('hidden');
-    visibleBeacons = {}; 
+    
+    navPrompt.value = ""; 
+    startNavBtn.disabled = true;
+    classifierResult.innerText = "";
+    
+    navArrow.style.opacity = 1;
+    navArrow.style.fill = "#3b82f6";
 }
 
 stopBtn.addEventListener('click', stopNavigation);
