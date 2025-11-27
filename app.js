@@ -1,3 +1,7 @@
+//
+
+// Map Configuration
+// Headings: 0=North, 90=East, 180=South, 270=West
 const campusMap = {
     beacons: {
         "ESP32_A": "entrance",
@@ -10,19 +14,13 @@ const campusMap = {
         "library": "Library"
     },
     graph: {
-        "entrance": { 
-            "hallway_main": 0 
-        },
-        "hallway_main": { 
-            "entrance": 180,  
-            "library": 90     
-        },
-        "library": { 
-            "hallway_main": 270 
-        }
+        "entrance": { "hallway_main": 0 },
+        "hallway_main": { "entrance": 180, "library": 90 },
+        "library": { "hallway_main": 270 }
     }
 };
 
+// Sklearn Classifier
 class SklearnClassifier {
     constructor() { this.model = null; this.ready = false; }
     
@@ -31,7 +29,7 @@ class SklearnClassifier {
             const response = await fetch(url);
             this.model = await response.json();
             this.ready = true;
-            console.log("ML Loaded. Classes:", this.model.classes);
+            console.log("Model loaded");
             return true;
         } catch (e) { console.error(e); return false; }
     }
@@ -43,8 +41,6 @@ class SklearnClassifier {
     predict(text) {
         if (!this.ready) return null;
         const { vocabulary, classes, priors, feature_probs } = this.model;
-        
-        // Clone priors to start scoring
         let scores = [...priors];
         
         this.preprocess(text).forEach(token => {
@@ -54,17 +50,15 @@ class SklearnClassifier {
             }
         });
 
-        // Find best match
         let max = -Infinity, best = -1;
         scores.forEach((s, i) => { if(s > max) { max = s; best = i; } });
         return classes[best];
     }
 }
 
-
+// Global State
 const ARRIVAL_RSSI = -65; 
 let classifier = new SklearnClassifier();
-
 
 classifier.load('campus-nav-model.json').then(s => {
     if(s) document.getElementById('classifier-result').innerText = "AI Ready.";
@@ -76,7 +70,7 @@ let finalDestination = null;
 let targetBearing = 0;      
 let scanActive = false;
 
-// --- UI ELEMENTS ---
+// UI Elements
 const setupScreen = document.getElementById('setup-screen');
 const navScreen = document.getElementById('nav-screen');
 const navPrompt = document.getElementById('nav-prompt');
@@ -90,10 +84,9 @@ const navArrow = document.getElementById('nav-arrow');
 const signalBar = document.getElementById('confidence-fill');
 const debugVal = document.getElementById('debug-coords');
 
-
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(console.warn);
 
-
+// BFS Pathfinding
 function findNextStep(start, end) {
     if (start === end) return null;
     let queue = [[start]];
@@ -115,14 +108,13 @@ function findNextStep(start, end) {
     return null;
 }
 
-
-
+// Event Listeners
 classifyBtn.addEventListener('click', () => {
     const text = navPrompt.value;
     if (!text.trim()) return;
 
     if (!classifier.ready) {
-        classifierResult.innerText = "⚠️ Model loading...";
+        classifierResult.innerText = "Model loading...";
         return;
     }
 
@@ -130,13 +122,13 @@ classifyBtn.addEventListener('click', () => {
 
     if (result) {
         finalDestination = result;
-        classifierResult.innerText = `✓ Going to ${campusMap.names[result]}`;
+        classifierResult.innerText = `Going to ${campusMap.names[result]}`;
         classifierResult.style.color = "var(--success)";
         startNavBtn.disabled = false;
         
         setTimeout(() => startNavBtn.click(), 800);
     } else {
-        classifierResult.innerText = "❓ Unsure. Try again.";
+        classifierResult.innerText = "Unsure. Try again.";
         classifierResult.style.color = "#ef4444";
     }
 });
@@ -145,7 +137,7 @@ navPrompt.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') classifyBtn.click();
 });
 
-
+// Navigation Logic
 function updateNavigationState(detectedBeaconName, rssi) {
     const detectedNode = campusMap.beacons[detectedBeaconName];
     if (!detectedNode) return;
@@ -155,11 +147,10 @@ function updateNavigationState(detectedBeaconName, rssi) {
 
     if (detectedNode === nextStep && rssi > ARRIVAL_RSSI) {
         currentStep = nextStep;
-        
         const newNext = findNextStep(currentStep, finalDestination);
         
         if (!newNext) {
-            guidanceLabel.innerText = "You have arrived! ";
+            guidanceLabel.innerText = "You have arrived.";
             navArrow.style.opacity = 0;
             debugVal.innerText = "Destination Reached";
         } else {
@@ -168,9 +159,8 @@ function updateNavigationState(detectedBeaconName, rssi) {
             
             guidanceLabel.innerText = `At ${campusMap.names[currentStep]}. Head to ${campusMap.names[nextStep]}`;
             destLabel.innerText = campusMap.names[nextStep]; 
-            navArrow.style.opacity = 1;
             
-            navArrow.style.fill = "#10b981";
+            navArrow.style.fill = "#10b981"; 
             setTimeout(() => navArrow.style.fill = "#3b82f6", 1000);
         }
     } else if (detectedNode === nextStep) {
@@ -178,7 +168,7 @@ function updateNavigationState(detectedBeaconName, rssi) {
     }
 }
 
-
+// Sensors & Bluetooth
 function handleOrientation(event) {
     if (navArrow.style.opacity === "0") return;
 
@@ -190,29 +180,29 @@ function handleOrientation(event) {
 
 startNavBtn.addEventListener('click', async () => {
     if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
-        alert("Please enable 'Experimental Web Platform Features' in brave://flags");
+        alert("Enable 'Experimental Web Platform Features' in brave://flags");
         return;
     }
-
+    
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
     }
     
+    // Assume start at entrance for demo
     currentStep = "entrance"; 
     
     nextStep = findNextStep(currentStep, finalDestination);
     
     if (!nextStep && currentStep !== finalDestination) {
-        alert("No path found!"); return;
+        alert("No path found."); return;
     } else if (currentStep === finalDestination) {
-        alert("You are already there!"); return;
+        alert("You are already there."); return;
     }
 
     targetBearing = campusMap.graph[currentStep][nextStep];
 
     setupScreen.classList.add('hidden');
     navScreen.classList.remove('hidden');
-    
     destLabel.innerText = campusMap.names[nextStep];
     guidanceLabel.innerText = `Follow arrow to ${campusMap.names[nextStep]}`;
     
@@ -245,7 +235,6 @@ function stopNavigation() {
     navPrompt.value = ""; 
     startNavBtn.disabled = true;
     classifierResult.innerText = "";
-    
     navArrow.style.opacity = 1;
     navArrow.style.fill = "#3b82f6";
 }

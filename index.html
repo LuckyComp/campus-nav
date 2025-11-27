@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Campus Nav</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0f172a">
 </head>
@@ -13,25 +13,25 @@
     <div class="card">
         
         <div id="setup-screen">
-            <h1>Campus Nav</h1>
-            <p>Triangulation Mode</p>
+            <h1>📍 Campus Nav</h1>
+            <p>Where are you heading?</p>
             
             <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                <label for="destination-select" class="sub-text" style="text-align: left; margin-bottom: 5px;">Select Destination</label>
-                <select id="destination-select">
-                    <option value="" disabled selected>Choose location...</option>
-                </select>
+                
+                <div class="input-group">
+                    <input type="text" id="nav-prompt" placeholder="e.g. 'I need coffee'" autocomplete="off">
+                    <button id="classifyBtn" class="icon-btn">➜</button>
+                </div>
+                <p id="classifier-result" class="sub-text" style="min-height: 20px; color: var(--accent);"></p>
+
             </div>
             
-            <p style="font-size: 0.75rem; text-align: center; margin-bottom: 10px;">
-                Enable Bluetooth & Location
-            </p>
             <button id="startNavBtn" disabled>Start Navigation</button>
         </div>
 
         <div id="nav-screen" class="hidden">
             <div class="nav-header">
-                <div class="label">Navigating To</div>
+                <div class="label">Next Waypoint</div>
                 <div id="dest-label" class="location-name">--</div>
             </div>
 
@@ -45,17 +45,14 @@
             
             <div class="meter-container">
                 <div id="confidence-bar"><div id="confidence-fill"></div></div>
-                <span class="sub-text">Signal Confidence</span>
+                <span class="sub-text">Signal Strength</span>
             </div>
-
-            <ul id="beacon-list">
-                </ul>
 
             <div class="debug-info">
-                XYZ: <span id="debug-coords">--</span>
+                Status: <span id="debug-status">Waiting...</span>
             </div>
 
-            <button id="stopBtn" class="stop">Stop</button>
+            <button id="stopBtn" class="stop">Stop Navigation</button>
         </div>
     </div>
 
