@@ -61,7 +61,7 @@ const ARRIVAL_RSSI = -65;
 let classifier = new SklearnClassifier();
 
 classifier.load('campus-nav-model.json').then(s => {
-    if(s) document.getElementById('classifier-result').innerText = "AI Ready.";
+    if(s) document.getElementById('classifier-result').innerText = "Where would you like to go?";
 });
 
 let currentStep = null;     // Changed from "entrance" to null (Unknown)
