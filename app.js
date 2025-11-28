@@ -1,3 +1,7 @@
+//
+
+// Map Configuration
+// Headings: 0=North, 90=East, 180=South, 270=West
 const campusMap = {
     beacons: {
         "ESP32_A": "entrance",
@@ -60,7 +64,7 @@ classifier.load('campus-nav-model.json').then(s => {
     if(s) document.getElementById('classifier-result').innerText = "AI Ready.";
 });
 
-let currentStep = null;     
+let currentStep = null;     // Changed from "entrance" to null (Unknown)
 let nextStep = null;        
 let finalDestination = null;
 let targetBearing = 0;      
@@ -122,6 +126,7 @@ classifyBtn.addEventListener('click', () => {
         classifierResult.style.color = "var(--success)";
         startNavBtn.disabled = false;
         
+        // Auto-start is optional, maybe remove it if user wants to double check
         setTimeout(() => startNavBtn.click(), 800);
     } else {
         classifierResult.innerText = "Unsure. Try again.";
@@ -141,14 +146,38 @@ function updateNavigationState(detectedBeaconName, rssi) {
     let strength = Math.max(0, Math.min(100, (rssi + 100) * 2));
     signalBar.style.width = `${strength}%`;
 
+    // --- FIX: HANDLE FIRST LOCATION LOCK ---
+    if (currentStep === null) {
+        // We found our first beacon!
+        currentStep = detectedNode;
+        
+        // Check if we are already there
+        if (currentStep === finalDestination) {
+            handleArrival();
+            return;
+        }
+
+        // Calculate path from this NEW start point
+        nextStep = findNextStep(currentStep, finalDestination);
+        
+        if (nextStep) {
+            targetBearing = campusMap.graph[currentStep][nextStep];
+            guidanceLabel.innerText = `Located at ${campusMap.names[currentStep]}. Head to ${campusMap.names[nextStep]}`;
+            destLabel.innerText = campusMap.names[nextStep];
+            navArrow.style.opacity = 1; // Show arrow
+        } else {
+            guidanceLabel.innerText = "Path unclear.";
+        }
+        return;
+    }
+
+    // Normal Navigation (Moving between nodes)
     if (detectedNode === nextStep && rssi > ARRIVAL_RSSI) {
         currentStep = nextStep;
         const newNext = findNextStep(currentStep, finalDestination);
         
         if (!newNext) {
-            guidanceLabel.innerText = "You have arrived.";
-            navArrow.style.opacity = 0;
-            debugVal.innerText = "Destination Reached";
+            handleArrival();
         } else {
             nextStep = newNext;
             targetBearing = campusMap.graph[currentStep][nextStep];
@@ -164,6 +193,12 @@ function updateNavigationState(detectedBeaconName, rssi) {
     }
 }
 
+function handleArrival() {
+    guidanceLabel.innerText = "You have arrived.";
+    navArrow.style.opacity = 0;
+    debugVal.innerText = "Destination Reached";
+}
+
 // Sensors & Bluetooth
 function handleOrientation(event) {
     if (navArrow.style.opacity === "0") return;
@@ -175,43 +210,35 @@ function handleOrientation(event) {
 }
 
 startNavBtn.addEventListener('click', async () => {
-    // 1. Initial Checks
     if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
-        alert("CRITICAL: 'Experimental Web Platform Features' flag is disabled in brave://flags.\n\nPlease enable it and relaunch.");
+        alert("Enable 'Experimental Web Platform Features' in brave://flags");
         return;
     }
-
+    
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
     }
-
-    // 2. Logic Checks
-    currentStep = "entrance"; 
-    nextStep = findNextStep(currentStep, finalDestination);
     
-    if (!nextStep && currentStep !== finalDestination) {
-        alert("Error: No path found in map logic."); return;
-    } else if (currentStep === finalDestination) {
-        alert("You are already at the destination!"); return;
-    }
-
-    targetBearing = campusMap.graph[currentStep][nextStep];
-
-    // 3. UI Switch (Opens the screen)
+    // --- FIX: Reset State to Unknown ---
+    currentStep = null; 
+    nextStep = null;
+    
+    // Switch to Nav Screen immediately
     setupScreen.classList.add('hidden');
     navScreen.classList.remove('hidden');
     
-    destLabel.innerText = campusMap.names[nextStep];
-    guidanceLabel.innerText = `Follow arrow to ${campusMap.names[nextStep]}`;
+    // Show "Scanning" state
+    destLabel.innerText = "Locating...";
+    guidanceLabel.innerText = "Walk to nearest beacon...";
+    navArrow.style.opacity = 0; // Hide arrow until we know where we are
     
     window.addEventListener('deviceorientation', handleOrientation);
 
-    // 4. Bluetooth Start (The Danger Zone)
     try {
         const scan = await navigator.bluetooth.requestLEScan({
             filters: [{ namePrefix: "ESP32" }],
-            keepRepeatedDevices: true
-            // Removed 'acceptAllAdvertisements' line to prevent parameter conflicts
+            keepRepeatedDevices: true,
+            acceptAllAdvertisements: false
         });
 
         scanActive = true;
@@ -220,12 +247,9 @@ startNavBtn.addEventListener('click', async () => {
         });
 
     } catch (error) {
-        // --- THIS IS THE FIX ---
-        // Instead of silently closing, we show the error.
         console.error("Scan Error:", error);
-        alert("Bluetooth Error:\n" + error.message + "\n\nMake sure Bluetooth is ON and you granted permission.");
-        
-        stopNavigation(); // Now closes the screen
+        alert("Scan Failed: " + error.message);
+        stopNavigation();
     }
 });
 
