@@ -4,9 +4,9 @@
 // Headings: 0=North, 90=East, 180=South, 270=West
 const campusMap = {
     beacons: {
-        "ESP32_A": "entrance",
-        "ESP32_B": "hallway_main",
-        "ESP32_C": "library"
+        "ESP32 A": "entrance",
+        "ESP32 B": "hallway_main",
+        "ESP32 C": "library"
     },
     names: {
         "entrance": "Main Entrance",
