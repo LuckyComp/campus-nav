@@ -1,7 +1,3 @@
-//
-
-// Map Configuration
-// Headings: 0=North, 90=East, 180=South, 270=West
 const campusMap = {
     beacons: {
         "ESP32_A": "entrance",
@@ -179,40 +175,43 @@ function handleOrientation(event) {
 }
 
 startNavBtn.addEventListener('click', async () => {
+    // 1. Initial Checks
     if (!navigator.bluetooth || !navigator.bluetooth.requestLEScan) {
-        alert("Enable 'Experimental Web Platform Features' in brave://flags");
+        alert("CRITICAL: 'Experimental Web Platform Features' flag is disabled in brave://flags.\n\nPlease enable it and relaunch.");
         return;
     }
-    
+
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
     }
-    
-    // Assume start at entrance for demo
+
+    // 2. Logic Checks
     currentStep = "entrance"; 
-    
     nextStep = findNextStep(currentStep, finalDestination);
     
     if (!nextStep && currentStep !== finalDestination) {
-        alert("No path found."); return;
+        alert("Error: No path found in map logic."); return;
     } else if (currentStep === finalDestination) {
-        alert("You are already there."); return;
+        alert("You are already at the destination!"); return;
     }
 
     targetBearing = campusMap.graph[currentStep][nextStep];
 
+    // 3. UI Switch (Opens the screen)
     setupScreen.classList.add('hidden');
     navScreen.classList.remove('hidden');
+    
     destLabel.innerText = campusMap.names[nextStep];
     guidanceLabel.innerText = `Follow arrow to ${campusMap.names[nextStep]}`;
     
     window.addEventListener('deviceorientation', handleOrientation);
 
+    // 4. Bluetooth Start (The Danger Zone)
     try {
         const scan = await navigator.bluetooth.requestLEScan({
             filters: [{ namePrefix: "ESP32" }],
-            keepRepeatedDevices: true,
-            acceptAllAdvertisements: false
+            keepRepeatedDevices: true
+            // Removed 'acceptAllAdvertisements' line to prevent parameter conflicts
         });
 
         scanActive = true;
@@ -221,8 +220,12 @@ startNavBtn.addEventListener('click', async () => {
         });
 
     } catch (error) {
+        // --- THIS IS THE FIX ---
+        // Instead of silently closing, we show the error.
         console.error("Scan Error:", error);
-        stopNavigation();
+        alert("Bluetooth Error:\n" + error.message + "\n\nMake sure Bluetooth is ON and you granted permission.");
+        
+        stopNavigation(); // Now closes the screen
     }
 });
 
